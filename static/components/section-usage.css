@@ -1,4 +1,15 @@
 /* 用量查询页面样式 */
+
+@keyframes refresh-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.btn-refresh-node .fa-sync-alt.refresh-spinning {
+    animation: refresh-spin 1s linear infinite;
+    display: inline-block !important;
+}
+
 .usage-panel {
     background: var(--bg-primary);
     border-radius: 0.5rem;
