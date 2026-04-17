@@ -133,6 +133,135 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
 }
 
 /**
+ * 获取单个节点的用量信息
+ * @param {string} providerType - 提供商类型
+ * @param {string} nodeUuid - 节点 UUID
+ * @param {Object} currentConfig - 当前配置
+ * @param {Object} providerPoolManager - 提供商池管理器
+ * @returns {Promise<Object>} 节点用量信息
+ */
+async function getNodeUsage(providerType, nodeUuid, currentConfig, providerPoolManager) {
+    // 获取提供商池中的所有实例
+    let providers = [];
+    if (providerPoolManager && providerPoolManager.providerPools && providerPoolManager.providerPools[providerType]) {
+        providers = providerPoolManager.providerPools[providerType];
+    } else if (currentConfig.providerPools && currentConfig.providerPools[providerType]) {
+        providers = currentConfig.providerPools[providerType];
+    }
+
+    // 查找指定 UUID 的节点
+    const provider = providers.find(p => p.uuid === nodeUuid);
+    if (!provider) {
+        throw new Error(`Node not found: ${nodeUuid}`);
+    }
+
+    const providerKey = providerType + nodeUuid;
+    let adapter = serviceInstances[providerKey];
+
+    const instanceResult = {
+        uuid: nodeUuid,
+        name: getProviderDisplayName(provider, providerType),
+        configFilePath: getProviderConfigFilePath(provider, providerType),
+        isHealthy: provider.isHealthy !== false,
+        isDisabled: provider.isDisabled === true,
+        success: false,
+        usage: null,
+        error: null
+    };
+
+    // Check if disabled
+    if (provider.isDisabled) {
+        instanceResult.error = 'Provider is disabled';
+        return instanceResult;
+    }
+
+    // Try to get adapter
+    if (!adapter) {
+        try {
+            logger.info(`[Usage API] Auto-initializing service adapter for ${providerType}: ${nodeUuid}`);
+            const serviceConfig = {
+                ...CONFIG,
+                ...provider,
+                MODEL_PROVIDER: providerType
+            };
+            adapter = getServiceAdapter(serviceConfig);
+        } catch (initError) {
+            logger.error(`[Usage API] Failed to initialize adapter for ${providerType}: ${nodeUuid}:`, initError.message);
+            instanceResult.error = `Service instance initialization failed: ${initError.message}`;
+            return instanceResult;
+        }
+    }
+
+    // Get usage
+    if (adapter && !instanceResult.error) {
+        try {
+            const usage = await getAdapterUsage(adapter, providerType);
+            instanceResult.success = true;
+            instanceResult.usage = usage;
+        } catch (error) {
+            instanceResult.error = error.message;
+        }
+    }
+
+    return instanceResult;
+}
+
+/**
+ * 处理获取单个节点用量的请求
+ */
+export async function handleGetNodeUsage(req, res, currentConfig, providerPoolManager, providerType, nodeUuid) {
+    try {
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        const refresh = url.searchParams.get('refresh') === 'true';
+
+        let usageResult;
+
+        if (!refresh) {
+            const cachedData = await readProviderUsageCache(providerType);
+            if (cachedData) {
+                const cachedNode = cachedData.instances?.find(i => i.uuid === nodeUuid);
+                if (cachedNode) {
+                    logger.info(`[Usage API] Returning cached usage data for ${providerType}/${nodeUuid}`);
+                    usageResult = { ...cachedNode, fromCache: true };
+                }
+            }
+        }
+
+        if (!usageResult) {
+            logger.info(`[Usage API] Fetching fresh usage data for ${providerType}/${nodeUuid}`);
+            usageResult = await getNodeUsage(providerType, nodeUuid, currentConfig, providerPoolManager);
+            // Update cache
+            const cachedData = await readProviderUsageCache(providerType);
+            if (cachedData && cachedData.instances) {
+                const idx = cachedData.instances.findIndex(i => i.uuid === nodeUuid);
+                if (idx >= 0) {
+                    cachedData.instances[idx] = usageResult;
+                } else {
+                    cachedData.instances.push(usageResult);
+                }
+                await updateProviderUsageCache(providerType, cachedData);
+            }
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            ...usageResult,
+            serverTime: new Date().toISOString()
+        }));
+        return true;
+    } catch (error) {
+        logger.error(`[UI API] Failed to get usage for ${providerType}/${nodeUuid}:`, error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            error: {
+                message: `Failed to get usage info for ${providerType}/${nodeUuid}: ` + error.message
+            }
+        }));
+        return true;
+    }
+}
+
+/**
  * 从适配器获取用量信息
  * @param {Object} adapter - 服务适配器
  * @param {string} providerType - 提供商类型

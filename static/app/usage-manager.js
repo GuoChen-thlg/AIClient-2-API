@@ -364,6 +364,60 @@ export async function refreshProviderUsage(providerType) {
 }
 
 /**
+ * 刷新单个节点的用量数据
+ * @param {string} providerType - 提供商类型
+ * @param {string} nodeUuid - 节点 UUID
+ */
+export async function refreshSingleNodeUsage(providerType, nodeUuid) {
+    if (event) {
+        event.stopPropagation();
+    }
+    
+    const btn = event?.currentTarget || document.querySelector(`.btn-refresh-node[onclick*="${nodeUuid}"]`);
+    if (!btn) return;
+    
+    const icon = btn.querySelector('i');
+    const originalColor = btn.style.color;
+    
+    btn.disabled = true;
+    btn.style.color = '#059669';
+    icon.style.transform = 'rotate(180deg)';
+    icon.style.transition = 'transform 0.3s ease';
+    
+    setTimeout(() => {
+        icon.style.transform = 'rotate(360deg)';
+    }, 300);
+    
+    try {
+        showToast(t('common.info'), t('usage.refreshingNode', { name: nodeUuid }), 'info');
+
+        const response = await fetch(`/api/usage/${providerType}/${nodeUuid}?refresh=true`, {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const nodeData = await response.json();
+        
+        if (nodeData.success) {
+            showToast(t('common.success'), t('common.refresh.success'), 'success');
+        } else {
+            showToast(t('common.warning'), nodeData.error || t('common.refresh.failed'), 'warning');
+        }
+    } catch (error) {
+        console.error(`刷新节点 ${nodeUuid} 失败:`, error);
+        showToast(t('common.error'), t('common.refresh.failed') + ': ' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.style.color = originalColor || '#666';
+        icon.style.transform = 'rotate(0deg)';
+    }
+}
+
+/**
  * 创建提供商分组容器
  * @param {string} providerType - 提供商类型
  * @param {Array} instances - 实例数组
@@ -491,6 +545,11 @@ function createInstanceUsageCard(instance, providerType) {
             <span class="collapsed-name" title="${displayName} (${t('usage.clickToManage') || '点击管理此节点'})" 
                   onclick="event.stopPropagation(); window.jumpToProviderNode('${providerType}', '${instance.uuid}', event)"
                   style="cursor: pointer; transition: color 0.2s;">${displayName}</span>
+            <button class="btn-refresh-node" title="${t('usage.refreshNode') || '刷新此节点用量'}" 
+                    onclick="event.stopPropagation(); window.refreshSingleNodeUsage('${providerType}', '${instance.uuid}')"
+                    style="background:none;border:none;cursor:pointer;padding:2px 6px;color:#666;transition:color 0.2s;">
+                <i class="fas fa-sync-alt" style="display:inline-block;"></i>
+            </button>
             ${statusIcon}
         </div>
         ${showUsage ? `
@@ -1001,3 +1060,5 @@ function formatDate(dateStr) {
         return dateStr;
     }
 }
+
+window.refreshSingleNodeUsage = refreshSingleNodeUsage;

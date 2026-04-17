@@ -1,4 +1,19 @@
 /* 用量查询页面样式 */
+
+.btn-refresh-node .fa-sync-alt {
+    transition: transform 0.3s ease;
+}
+
+.btn-refresh-node.loading .fa-sync-alt {
+    transform: rotate(360deg);
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .usage-panel {
     background: var(--bg-primary);
     border-radius: 0.5rem;
